@@ -33,7 +33,6 @@ import {
   Headphones,
 } from "lucide-react";
 import Link from "next/link";
-import { UsageContainer } from "@/features/billing/components/usage-container";
 import { VoiceCreateDialog } from "@/features/voices/components/voice-create-dialog";
 import { useState } from "react";
 
@@ -148,13 +147,13 @@ export function DashboardSidebar() {
         className="flex items-center gap-2 pl-1 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:pl-0">
           <Image
             src="/logo.svg"
-            alt="Resonance"
+            alt="Woice"
             width={24}
             height={24}
             className="rounded-sm"
           />
           <span className="group-data-[collapsible=icon]:hidden font-semibold text-lg tracking-tighter text-foreground">
-            Resonance
+            Woice
           </span>
           <SidebarTrigger className="ml-auto lg:hidden" />
         </div>
@@ -197,7 +196,6 @@ export function DashboardSidebar() {
       </SidebarContent>
       <div className="border-b border-dashed border-border" />
       <SidebarFooter className="gap-3 py-3">
-        <UsageContainer />
         <SidebarMenu>
           <SidebarMenuItem>
             <UserButton

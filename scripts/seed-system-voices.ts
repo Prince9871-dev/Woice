@@ -25,25 +25,33 @@ const SYSTEM_VOICES_DIR = path.join(
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
-  R2_ACCOUNT_ID: z.string().min(1),
-  R2_ACCESS_KEY_ID: z.string().min(1),
-  R2_SECRET_ACCESS_KEY: z.string().min(1),
-  R2_BUCKET_NAME: z.string().min(1),
+  R2_ACCOUNT_ID: z.string().min(1).optional(),
+  R2_ACCESS_KEY_ID: z.string().min(1).optional(),
+  R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  R2_BUCKET_NAME: z.string().min(1).optional(),
 });
 
-const env = envSchema.parse(process.env);
+const env = process.env;
+const hasR2Config = Boolean(
+  env.R2_ACCOUNT_ID &&
+    env.R2_ACCESS_KEY_ID &&
+    env.R2_SECRET_ACCESS_KEY &&
+    env.R2_BUCKET_NAME,
+);
 
 const adapter = new PrismaPg({ connectionString: env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
-const r2 = new S3Client({
-  region: "auto",
-  endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-  credentials: {
-    accessKeyId: env.R2_ACCESS_KEY_ID,
-    secretAccessKey: env.R2_SECRET_ACCESS_KEY,
-  },
-});
+const r2 = hasR2Config
+  ? new S3Client({
+      region: "auto",
+      endpoint: `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+      },
+    })
+  : null;
 
 interface VoiceMetadata {
   description: string;
@@ -170,6 +178,10 @@ async function uploadSystemVoiceAudio({
   buffer: Buffer;
   contentType: string;
 }) {
+  if (!r2 || !env.R2_BUCKET_NAME) {
+    throw new Error("R2 client is not configured");
+  }
+
   const commandInput: PutObjectCommandInput = {
     Bucket: env.R2_BUCKET_NAME,
     Key: key,
@@ -181,8 +193,6 @@ async function uploadSystemVoiceAudio({
 }
 
 async function seedSystemVoice(name: string) {
-  const { buffer, contentType } = await readSystemVoiceAudio(name);
-
   const existingSystemVoice = await prisma.voice.findFirst({
     where: {
       variant: "SYSTEM",
@@ -192,26 +202,40 @@ async function seedSystemVoice(name: string) {
   });
 
   if (existingSystemVoice) {
-    const r2ObjectKey = `voices/system/${existingSystemVoice.id}`;
     const meta = systemVoiceMetadata[name];
 
-    await uploadSystemVoiceAudio({
-      key: r2ObjectKey,
-      buffer,
-      contentType,
-    });
+    if (hasR2Config) {
+      const { buffer, contentType } = await readSystemVoiceAudio(name);
+      const r2ObjectKey = `voices/system/${existingSystemVoice.id}`;
 
-    await prisma.voice.update({
-      where: { id: existingSystemVoice.id },
-      data: {
-        r2ObjectKey,
-        ...(meta && {
+      await uploadSystemVoiceAudio({
+        key: r2ObjectKey,
+        buffer,
+        contentType,
+      });
+
+      await prisma.voice.update({
+        where: { id: existingSystemVoice.id },
+        data: {
+          r2ObjectKey,
+          ...(meta && {
+            description: meta.description,
+            category: meta.category,
+            language: meta.language,
+          }),
+        },
+      });
+    } else if (meta) {
+      await prisma.voice.update({
+        where: { id: existingSystemVoice.id },
+        data: {
           description: meta.description,
           category: meta.category,
           language: meta.language,
-        }),
-      },
-    });
+        },
+      });
+    }
+
     return;
   }
 
@@ -233,6 +257,11 @@ async function seedSystemVoice(name: string) {
     },
   });
 
+  if (!hasR2Config) {
+    return;
+  }
+
+  const { buffer, contentType } = await readSystemVoiceAudio(name);
   const r2ObjectKey = `voices/system/${voice.id}`;
 
   try {
@@ -267,6 +296,11 @@ async function main() {
   console.log(
     `Seeding ${CANONICAL_SYSTEM_VOICE_NAMES.length} system voices...`,
   );
+  if (!hasR2Config) {
+    console.log(
+      "R2 environment variables are missing. Skipping audio uploads and seeding database records only.",
+    );
+  }
 
   for (const name of CANONICAL_SYSTEM_VOICE_NAMES) {
     console.log(`- ${name}`);

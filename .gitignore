@@ -50,3 +50,7 @@ __pycache__
 
 # Sentry Config File
 .env.sentry-build-plugin
+.env
+.env.local
+node_modules
+.next
